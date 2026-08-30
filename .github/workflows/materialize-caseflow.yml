@@ -40,3 +40,5 @@ jobs:
           fi
           git commit -m 'Materialize CASEFLOW v0.5 foundation and browser v3 demo'
           git push origin HEAD:main
+
+# Bootstrap trigger 2026-08-30
