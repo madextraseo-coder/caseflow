@@ -1,0 +1,10 @@
+import crypto from "node:crypto";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { getPrincipalFromRequest } from "@/lib/auth";
+import { transaction } from "@/lib/db";
+import { hashSecret } from "@/lib/crypto";
+import { isTrustedBrowserMutation } from "@/lib/csrf";
+import { canAdministerDescendant } from "@/lib/marketer-network";
+const schema=z.object({parentOrganizationId:z.string().uuid(),email:z.string().email(),invitationType:z.enum(['MARKETER_AGENT','PUBLISHER_ADMIN','PUBLISHER_AGENT','SUBPUBLISHER_ADMIN','SUBPUBLISHER_AGENT']),roleCode:z.string().min(2).max(80),targetOrganizationId:z.string().uuid().optional(),allowChildPublishers:z.boolean().default(false)});
+export async function POST(request:NextRequest){if(!isTrustedBrowserMutation(request))return NextResponse.json({error:'Untrusted origin'},{status:403});const p=await getPrincipalFromRequest(request);if(!p)return NextResponse.json({error:'Unauthorized'},{status:401});const parsed=schema.safeParse(await request.json().catch(()=>null));if(!parsed.success)return NextResponse.json({error:'Invalid invitation'},{status:422});return transaction(async c=>{const permission=parsed.data.invitationType.includes('PUBLISHER_ADMIN')?'marketer:publisher:create':'marketer:agent:manage';const allowed=await canAdministerDescendant(c,p,parsed.data.parentOrganizationId,permission);if(!allowed)return NextResponse.json({error:'Forbidden'},{status:403});const token=crypto.randomBytes(32).toString('base64url');const r=await c.query<{id:string}>(`INSERT INTO network_invitations(parent_organization_id,invited_email,invited_role_code,invitation_type,target_organization_id,allow_child_publishers,token_hash,expires_at,created_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '72 hours',$8) RETURNING id::text`,[parsed.data.parentOrganizationId,parsed.data.email.toLowerCase(),parsed.data.roleCode,parsed.data.invitationType,parsed.data.targetOrganizationId??null,parsed.data.allowChildPublishers,hashSecret(token),p.userId]);return NextResponse.json({ok:true,id:r.rows[0].id,inviteToken:token,expiresInHours:72},{status:201});});}
