@@ -1,0 +1,4 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getPrincipalFromRequest } from "@/lib/auth";
+import { query } from "@/lib/db";
+export async function GET(request:NextRequest){const p=await getPrincipalFromRequest(request);if(!p)return NextResponse.json({error:'Unauthorized'},{status:401});const orgIds=p.memberships.map(m=>m.organizationId);const status=request.nextUrl.searchParams.get('status')||'OPEN';const r=await query(`SELECT id::text,organization_id::text,matter_id::text,exception_type,severity,title,detail,status,assigned_user_id::text,metadata,opened_at::text,resolved_at::text FROM exception_events WHERE organization_id=ANY($1::uuid[]) AND status=$2 ORDER BY CASE severity WHEN 'URGENT' THEN 0 WHEN 'WARNING' THEN 1 ELSE 2 END,opened_at LIMIT 100`,[orgIds,status]);return NextResponse.json({items:r.rows});}
